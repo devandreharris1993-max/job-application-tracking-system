@@ -62,16 +62,8 @@ function buildMonthCells(year: number, month: number): CalendarCell[] {
   return cells;
 }
 
-export function calendarDaysFromStats(stats: {
-  dailyTrend: DailyApplicationCount[];
-  calendarDays?: DailyApplicationCount[];
-}): DailyApplicationCount[] {
-  return stats.calendarDays ?? stats.dailyTrend.filter((point) => point.count > 0);
-}
-
 /** Month calendar that highlights days with tracked applications and filters the list below
- * when a day is clicked — same `trackedOn` date key as the 14-day chart. Days with no
- * applications keep the default cell style. */
+ * when a day is clicked. Days with no applications keep the default cell style. */
 export function ApplicationCalendar({
   days,
   selectedDate,
@@ -144,28 +136,18 @@ export function ApplicationCalendar({
           const isSelected = selectedKey === cell.key;
           const isToday = cell.key === today;
 
-          let className =
-            'relative flex h-9 w-full items-center justify-center rounded-lg text-sm transition-colors ';
-          if (!cell.inMonth) {
-            className += isSelected
-              ? hasApps
-                ? 'bg-green-600 font-semibold text-white'
-                : 'bg-slate-600 font-semibold text-white'
-              : hasApps
-                ? 'bg-green-50 font-medium text-green-600'
-                : 'text-slate-300 hover:bg-slate-50';
-          } else if (hasApps && isSelected) {
-            className += 'bg-green-600 font-semibold text-white shadow-sm';
-          } else if (hasApps) {
-            className += 'bg-green-100 font-semibold text-green-800 hover:bg-green-200';
-          } else if (isSelected) {
-            className += 'bg-slate-700 font-semibold text-white shadow-sm';
-          } else {
-            className += 'text-slate-700 hover:bg-slate-50';
-          }
-          if (isToday && !isSelected) {
-            className += ' ring-1 ring-inset ring-slate-300';
-          }
+          const className = [
+            'relative flex h-9 w-full items-center justify-center rounded-lg text-sm transition-colors',
+            !cell.inMonth && !hasApps && !isSelected ? 'text-slate-300 hover:bg-slate-50' : '',
+            !cell.inMonth && hasApps && !isSelected ? 'bg-green-100 font-semibold text-green-700' : '',
+            cell.inMonth && hasApps && !isSelected ? 'bg-green-500 font-semibold text-white hover:bg-green-600' : '',
+            cell.inMonth && !hasApps && !isSelected ? 'text-slate-700 hover:bg-slate-50' : '',
+            hasApps && isSelected ? 'bg-green-700 font-semibold text-white shadow-sm ring-2 ring-green-800' : '',
+            !hasApps && isSelected ? 'bg-slate-700 font-semibold text-white shadow-sm' : '',
+            isToday && !isSelected ? 'ring-1 ring-inset ring-slate-300' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
 
           return (
             <button

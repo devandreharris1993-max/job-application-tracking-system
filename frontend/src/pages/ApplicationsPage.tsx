@@ -1,13 +1,18 @@
-import { useEffect, useState } from 'react';
-import { ApplicationCalendar, calendarDaysFromStats } from '../components/ApplicationCalendar';
+import { useEffect, useMemo, useState } from 'react';
+import { ApplicationCalendar } from '../components/ApplicationCalendar';
 import { ApplicationRow } from '../components/ApplicationRow';
 import { ApplicationSearchField } from '../components/ApplicationSearchField';
 import { ApplicationTrendChart } from '../components/ApplicationTrendChart';
 import { GoalProgressRing } from '../components/GoalProgressRing';
 import { Spinner } from '../components/Spinner';
-import { useApplicationsQuery, useMyApplicationStatsQuery } from '../hooks/useApplications';
+import { useApplicationCatalogQuery, useMyApplicationStatsQuery } from '../hooks/useApplications';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { APPLICATION_GOAL, APPLICATION_STATUSES, type ApplicationStatus } from '../types';
+import {
+  calendarDaysFromApplications,
+  filterApplicationsForView,
+  paginateLocalItems,
+} from '../utils/applicationCalendar';
 import { formatDate } from '../utils/format';
 
 const PAGE_SIZE = 10;
@@ -24,20 +29,15 @@ export function ApplicationsPage() {
   }, [status, search, trackedOn]);
 
   const statsQuery = useMyApplicationStatsQuery();
-  const query = useApplicationsQuery({
-    status,
-    q: search,
-    trackedOn: trackedOn ?? undefined,
-    page,
-    size: PAGE_SIZE,
-  });
-  const data = query.data;
-
-  // Deliberately unfiltered (and cached separately from `query` above under a different query
-  // key) so the goal ring always reflects every tracked application, not just whichever status
-  // the list below happens to be filtered to right now.
-  const totalQuery = useApplicationsQuery({ status: '', page: 0, size: 1 });
-  const totalApplied = totalQuery.data?.totalElements ?? 0;
+  const catalogQuery = useApplicationCatalogQuery();
+  const catalog = catalogQuery.data ?? [];
+  const calendarDays = useMemo(() => calendarDaysFromApplications(catalog), [catalog]);
+  const filtered = useMemo(
+    () => filterApplicationsForView(catalog, { status, search, trackedOn }),
+    [catalog, status, search, trackedOn],
+  );
+  const data = paginateLocalItems(filtered, page, PAGE_SIZE);
+  const totalApplied = catalog.length;
   const remaining = Math.max(APPLICATION_GOAL - totalApplied, 0);
 
   const selectDay = (date: string | null) => {
@@ -76,7 +76,7 @@ export function ApplicationsPage() {
         </div>
       </div>
 
-      {totalQuery.data && (
+      {catalogQuery.data && (
         <div className="card mb-6 flex flex-wrap items-center gap-6 p-5">
           <GoalProgressRing current={totalApplied} goal={APPLICATION_GOAL} />
           <div>
@@ -94,8 +94,8 @@ export function ApplicationsPage() {
         </div>
       )}
 
-      {statsQuery.data && (
-        <div className="mb-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+      <div className="mb-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        {statsQuery.data && (
           <section className="card p-5">
             <h2 className="mb-4 text-lg font-semibold text-slate-900">Applications — last 14 days</h2>
             <ApplicationTrendChart
@@ -104,16 +104,12 @@ export function ApplicationsPage() {
               onSelectDate={selectDay}
             />
           </section>
-          <section className="card p-5">
-            <h2 className="mb-4 text-lg font-semibold text-slate-900">Calendar</h2>
-            <ApplicationCalendar
-              days={calendarDaysFromStats(statsQuery.data)}
-              selectedDate={trackedOn}
-              onSelectDate={selectDay}
-            />
-          </section>
-        </div>
-      )}
+        )}
+        <section className="card p-5">
+          <h2 className="mb-4 text-lg font-semibold text-slate-900">Calendar</h2>
+          <ApplicationCalendar days={calendarDays} selectedDate={trackedOn} onSelectDate={selectDay} />
+        </section>
+      </div>
 
       <div id="application-list" className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-slate-900">
@@ -127,17 +123,17 @@ export function ApplicationsPage() {
       </div>
 
       <div className="card px-5">
-        {query.isLoading && (
+        {catalogQuery.isLoading && (
           <div className="flex justify-center py-10">
             <Spinner />
           </div>
         )}
 
-        {query.isError && (
+        {catalogQuery.isError && (
           <p className="py-10 text-center text-sm text-red-600">Failed to load applications.</p>
         )}
 
-        {data && data.items.length === 0 && (
+        {catalogQuery.data && data.totalElements === 0 && (
           <p className="py-10 text-center text-sm text-slate-500">
             {trackedOn
               ? `No applications tracked on ${formatDate(trackedOn)}.`
@@ -149,7 +145,7 @@ export function ApplicationsPage() {
           </p>
         )}
 
-        {data && data.items.length > 0 && (
+        {catalogQuery.data && data.items.length > 0 && (
           <div>
             {data.items.map((application) => (
               <ApplicationRow key={application.id} application={application} />
@@ -158,7 +154,7 @@ export function ApplicationsPage() {
         )}
       </div>
 
-      {data && data.totalElements > 0 && (
+      {catalogQuery.data && data.totalElements > 0 && (
         <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
           <span>
             Page {data.page + 1} of {data.totalPages} ({data.totalElements} total)

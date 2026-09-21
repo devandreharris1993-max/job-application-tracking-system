@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ApplicationCalendar, calendarDaysFromStats } from '../components/ApplicationCalendar';
+import { ApplicationCalendar } from '../components/ApplicationCalendar';
 import { ApplicationSearchField } from '../components/ApplicationSearchField';
 import { ApplicationTrendChart } from '../components/ApplicationTrendChart';
 import { GoalProgressRing } from '../components/GoalProgressRing';
@@ -8,8 +8,13 @@ import { ManagerApplicationRow } from '../components/ManagerApplicationRow';
 import { Spinner } from '../components/Spinner';
 import { AccountStatusBadge } from '../components/StatusBadge';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { useAllApplicationsQuery, useApplicationStatsQuery, useManagedUserQuery } from '../hooks/useManager';
+import { useApplicationStatsQuery, useManagedApplicationCatalogQuery, useManagedUserQuery } from '../hooks/useManager';
 import { APPLICATION_GOAL, APPLICATION_STATUSES, type ApplicationStatus } from '../types';
+import {
+  calendarDaysFromApplications,
+  filterApplicationsForView,
+  paginateLocalItems,
+} from '../utils/applicationCalendar';
 import { formatDate } from '../utils/format';
 
 const PAGE_SIZE = 10;
@@ -28,17 +33,16 @@ export function ManagerUserDetailPage() {
 
   const userQuery = useManagedUserQuery(userId ?? '');
   const statsQuery = useApplicationStatsQuery(userId);
-  const applicationsQuery = useAllApplicationsQuery({
-    userId,
-    status,
-    q: search,
-    trackedOn: trackedOn ?? undefined,
-    page,
-    size: PAGE_SIZE,
-  });
-  const applications = applicationsQuery.data;
+  const catalogQuery = useManagedApplicationCatalogQuery(userId);
+  const catalog = catalogQuery.data ?? [];
+  const calendarDays = useMemo(() => calendarDaysFromApplications(catalog), [catalog]);
+  const filtered = useMemo(
+    () => filterApplicationsForView(catalog, { status, search, trackedOn }),
+    [catalog, status, search, trackedOn],
+  );
+  const applications = paginateLocalItems(filtered, page, PAGE_SIZE);
 
-  const totalApplied = userQuery.data?.applicationCount ?? 0;
+  const totalApplied = userQuery.data?.applicationCount ?? catalog.length;
 
   const selectDay = (date: string | null) => {
     setTrackedOn(date);
@@ -103,8 +107,8 @@ export function ManagerUserDetailPage() {
         </div>
       )}
       {statsQuery.isError && <p className="text-sm text-red-600">Failed to load application stats.</p>}
-      {statsQuery.data && (
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        {statsQuery.data && (
           <section className="card p-5">
             <h2 className="mb-4 text-lg font-semibold text-slate-900">Applications — last 14 days</h2>
             <ApplicationTrendChart
@@ -113,16 +117,12 @@ export function ManagerUserDetailPage() {
               onSelectDate={selectDay}
             />
           </section>
-          <section className="card p-5">
-            <h2 className="mb-4 text-lg font-semibold text-slate-900">Calendar</h2>
-            <ApplicationCalendar
-              days={calendarDaysFromStats(statsQuery.data)}
-              selectedDate={trackedOn}
-              onSelectDate={selectDay}
-            />
-          </section>
-        </div>
-      )}
+        )}
+        <section className="card p-5">
+          <h2 className="mb-4 text-lg font-semibold text-slate-900">Calendar</h2>
+          <ApplicationCalendar days={calendarDays} selectedDate={trackedOn} onSelectDate={selectDay} />
+        </section>
+      </div>
 
       <section id="application-list">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -161,15 +161,15 @@ export function ManagerUserDetailPage() {
         </div>
 
         <div className="card overflow-hidden">
-          {applicationsQuery.isLoading && (
+          {catalogQuery.isLoading && (
             <div className="flex justify-center py-10">
               <Spinner />
             </div>
           )}
-          {applicationsQuery.isError && (
+          {catalogQuery.isError && (
             <p className="py-10 text-center text-sm text-red-600">Failed to load applications.</p>
           )}
-          {applications && applications.items.length === 0 && (
+          {catalogQuery.data && applications.totalElements === 0 && (
             <p className="py-10 text-center text-sm text-slate-500">
               {trackedOn
                 ? `No applications tracked on ${formatDate(trackedOn)}.`
@@ -180,7 +180,7 @@ export function ManagerUserDetailPage() {
                     : 'No applications tracked for this applicant yet.'}
             </p>
           )}
-          {applications && applications.items.length > 0 && (
+          {catalogQuery.data && applications.items.length > 0 && (
             <table className="w-full text-left">
               <thead className="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
                 <tr>
@@ -200,7 +200,7 @@ export function ManagerUserDetailPage() {
           )}
         </div>
 
-        {applications && applications.totalElements > 0 && (
+        {catalogQuery.data && applications.totalElements > 0 && (
           <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
             <span>
               Page {applications.page + 1} of {applications.totalPages} ({applications.totalElements} total)

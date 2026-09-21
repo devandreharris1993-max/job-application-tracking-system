@@ -7,6 +7,7 @@ import {
   getManagedUser,
   getOverviewStats,
   listAllApplications,
+  listManagedApplicationCatalog,
   listManagedUsers,
   rejectUser,
   updateApplicationStatus,
@@ -49,6 +50,14 @@ export function useAllApplicationsQuery(params: ListAllApplicationsParams) {
   return useQuery({
     queryKey: ['manager', 'applications', params],
     queryFn: () => listAllApplications(params),
+  });
+}
+
+export function useManagedApplicationCatalogQuery(userId?: string) {
+  return useQuery({
+    queryKey: ['manager', 'applications', 'catalog', userId ?? null],
+    queryFn: () => listManagedApplicationCatalog(userId),
+    enabled: userId !== undefined ? Boolean(userId) : true,
   });
 }
 

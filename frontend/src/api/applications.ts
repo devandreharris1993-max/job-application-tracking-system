@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { collectAllPages } from '../utils/applicationCalendar';
 import type {
   ApiEnvelope,
   ApplicationHistoryEntry,
@@ -27,6 +28,10 @@ export async function listApplications(params: ListApplicationsParams): Promise<
     },
   });
   return data.data;
+}
+
+export async function listApplicationCatalog(): Promise<JobApplication[]> {
+  return collectAllPages((page, size) => listApplications({ page, size }));
 }
 
 export async function getMyApplicationStats(): Promise<ApplicationStats> {

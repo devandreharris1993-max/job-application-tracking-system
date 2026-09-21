@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   getApplicationHistory,
   getMyApplicationStats,
+  listApplicationCatalog,
   listApplications,
   type ListApplicationsParams,
 } from '../api/applications';
@@ -10,6 +11,13 @@ export function useApplicationsQuery(params: ListApplicationsParams) {
   return useQuery({
     queryKey: ['applications', params],
     queryFn: () => listApplications(params),
+  });
+}
+
+export function useApplicationCatalogQuery() {
+  return useQuery({
+    queryKey: ['applications', 'catalog'],
+    queryFn: listApplicationCatalog,
   });
 }
 

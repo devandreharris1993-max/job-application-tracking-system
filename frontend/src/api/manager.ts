@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { collectAllPages } from '../utils/applicationCalendar';
 import type {
   AccountStatus,
   ApiEnvelope,
@@ -82,6 +83,10 @@ export async function listAllApplications(
     },
   });
   return data.data;
+}
+
+export async function listManagedApplicationCatalog(userId?: string): Promise<ManagerApplication[]> {
+  return collectAllPages((page, size) => listAllApplications({ userId, page, size }));
 }
 
 export async function deleteApplication(id: string): Promise<void> {
