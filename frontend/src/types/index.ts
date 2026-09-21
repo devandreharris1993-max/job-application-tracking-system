@@ -91,6 +91,7 @@ export type ApplicationStatusBreakdown = Partial<Record<ApplicationStatus, numbe
 export interface ApplicationStats {
   statusBreakdown: ApplicationStatusBreakdown;
   dailyTrend: DailyApplicationCount[];
+  calendarDays?: DailyApplicationCount[];
 }
 
 /** A single uploaded resume version — see backend/app/resumes/schemas.py's ResumeResponse. */

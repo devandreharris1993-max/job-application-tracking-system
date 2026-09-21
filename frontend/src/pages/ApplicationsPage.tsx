@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ApplicationCalendar, calendarDaysFromStats } from '../components/ApplicationCalendar';
 import { ApplicationRow } from '../components/ApplicationRow';
 import { ApplicationSearchField } from '../components/ApplicationSearchField';
 import { ApplicationTrendChart } from '../components/ApplicationTrendChart';
@@ -38,6 +39,11 @@ export function ApplicationsPage() {
   const totalQuery = useApplicationsQuery({ status: '', page: 0, size: 1 });
   const totalApplied = totalQuery.data?.totalElements ?? 0;
   const remaining = Math.max(APPLICATION_GOAL - totalApplied, 0);
+
+  const selectDay = (date: string | null) => {
+    setTrackedOn(date);
+    document.getElementById('application-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
     <div>
@@ -88,17 +94,24 @@ export function ApplicationsPage() {
       )}
 
       {statsQuery.data && (
-        <section className="card mb-6 p-5">
-          <h2 className="mb-4 text-lg font-semibold text-slate-900">Applications — last 14 days</h2>
-          <ApplicationTrendChart
-            data={statsQuery.data.dailyTrend}
-            selectedDate={trackedOn}
-            onSelectDate={(date) => {
-              setTrackedOn(date);
-              document.getElementById('application-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }}
-          />
-        </section>
+        <div className="mb-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+          <section className="card p-5">
+            <h2 className="mb-4 text-lg font-semibold text-slate-900">Applications — last 14 days</h2>
+            <ApplicationTrendChart
+              data={statsQuery.data.dailyTrend}
+              selectedDate={trackedOn}
+              onSelectDate={selectDay}
+            />
+          </section>
+          <section className="card p-5">
+            <h2 className="mb-4 text-lg font-semibold text-slate-900">Calendar</h2>
+            <ApplicationCalendar
+              days={calendarDaysFromStats(statsQuery.data)}
+              selectedDate={trackedOn}
+              onSelectDate={selectDay}
+            />
+          </section>
+        </div>
       )}
 
       <div id="application-list" className="mb-4 flex flex-wrap items-center justify-between gap-2">

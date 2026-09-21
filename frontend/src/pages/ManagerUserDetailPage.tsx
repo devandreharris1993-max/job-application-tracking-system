@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { ApplicationCalendar, calendarDaysFromStats } from '../components/ApplicationCalendar';
 import { ApplicationSearchField } from '../components/ApplicationSearchField';
 import { ApplicationTrendChart } from '../components/ApplicationTrendChart';
 import { GoalProgressRing } from '../components/GoalProgressRing';
@@ -38,6 +39,11 @@ export function ManagerUserDetailPage() {
   const applications = applicationsQuery.data;
 
   const totalApplied = userQuery.data?.applicationCount ?? 0;
+
+  const selectDay = (date: string | null) => {
+    setTrackedOn(date);
+    document.getElementById('application-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
     <div className="space-y-8">
@@ -90,25 +96,32 @@ export function ManagerUserDetailPage() {
         </div>
       </section>
 
-      <section className="card p-5">
-        <h2 className="mb-4 text-lg font-semibold text-slate-900">Applications — last 14 days</h2>
-        {statsQuery.isLoading && (
-          <div className="flex justify-center py-6">
-            <Spinner />
-          </div>
-        )}
-        {statsQuery.isError && <p className="text-sm text-red-600">Failed to load application stats.</p>}
-        {statsQuery.data && (
-          <ApplicationTrendChart
-            data={statsQuery.data.dailyTrend}
-            selectedDate={trackedOn}
-            onSelectDate={(date) => {
-              setTrackedOn(date);
-              document.getElementById('application-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }}
-          />
-        )}
-      </section>
+      {statsQuery.isLoading && (
+        <div className="flex justify-center py-6">
+          <Spinner />
+        </div>
+      )}
+      {statsQuery.isError && <p className="text-sm text-red-600">Failed to load application stats.</p>}
+      {statsQuery.data && (
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+          <section className="card p-5">
+            <h2 className="mb-4 text-lg font-semibold text-slate-900">Applications — last 14 days</h2>
+            <ApplicationTrendChart
+              data={statsQuery.data.dailyTrend}
+              selectedDate={trackedOn}
+              onSelectDate={selectDay}
+            />
+          </section>
+          <section className="card p-5">
+            <h2 className="mb-4 text-lg font-semibold text-slate-900">Calendar</h2>
+            <ApplicationCalendar
+              days={calendarDaysFromStats(statsQuery.data)}
+              selectedDate={trackedOn}
+              onSelectDate={selectDay}
+            />
+          </section>
+        </div>
+      )}
 
       <section id="application-list">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

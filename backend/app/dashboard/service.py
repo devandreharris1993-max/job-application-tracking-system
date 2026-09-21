@@ -59,7 +59,11 @@ def get_application_stats(db: Session, user_id_filter: uuid.UUID | None = None) 
     for status_value in ApplicationStatus:
         breakdown[status_value] = base_query.filter(JobApplication.status == status_value).count()
 
-    return ApplicationStatsResponse(statusBreakdown=breakdown, dailyTrend=_build_daily_trend(db, user_id_filter))
+    return ApplicationStatsResponse(
+        statusBreakdown=breakdown,
+        dailyTrend=_build_daily_trend(db, user_id_filter),
+        calendarDays=_build_calendar_days(db, user_id_filter),
+    )
 
 
 def list_users(
@@ -304,6 +308,23 @@ def _build_daily_trend(db: Session, user_id_filter: uuid.UUID | None = None) -> 
         trend.append(DailyApplicationCount(date=current, count=counts_by_date.get(current, 0)))
         current += timedelta(days=1)
     return trend
+
+
+def _build_calendar_days(db: Session, user_id_filter: uuid.UUID | None = None) -> list[DailyApplicationCount]:
+    """Sparse per-day counts for the month calendar. Same UTC created_at bucket as dailyTrend
+    and the trackedOn list filter, so a highlighted cell opens the same day's applications."""
+    day = cast(JobApplication.created_at, Date)
+    query = db.query(day, func.count(JobApplication.id))
+    if user_id_filter is not None:
+        query = query.filter(JobApplication.user_id == user_id_filter)
+    rows = query.group_by(day).order_by(day).all()
+
+    days: list[DailyApplicationCount] = []
+    for day_value, count in rows:
+        n = int(count)
+        if n > 0:
+            days.append(DailyApplicationCount(date=_as_date(day_value), count=n))
+    return days
 
 
 def _to_application_response(application: JobApplication, user: User) -> ManagerApplicationResponse:
