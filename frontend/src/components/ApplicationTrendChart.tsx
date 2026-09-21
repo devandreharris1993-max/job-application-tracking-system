@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { DailyApplicationCount } from '../types';
+import { formatShortDate } from '../utils/format';
 
-function shortDate(value: string): string {
-  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+function dateKey(value: string): string {
+  return value.slice(0, 10);
 }
 
 /** A lightweight CSS bar chart — deliberately not pulling in a charting library for one chart.
@@ -11,14 +12,25 @@ function shortDate(value: string): string {
  * this reads just as well with 7 days as with 90. Date labels thin themselves out automatically —
  * showing one for every bar would overlap once there are more than a handful — and an explicit
  * hover tooltip replaces the browser's native `title` tooltip (which is inconsistently styled and
- * often slow to appear) with something that always matches the rest of the UI. */
-export function ApplicationTrendChart({ data }: { data: DailyApplicationCount[] }) {
+ * often slow to appear) with something that always matches the rest of the UI.
+ *
+ * When `onSelectDate` is provided, a bar with a count is a filter control: click it to show that
+ * day's applications in the table below, click it again (or a Clear control on the table) to
+ * return to the unfiltered list. */
+export function ApplicationTrendChart({
+  data,
+  selectedDate,
+  onSelectDate,
+}: {
+  data: DailyApplicationCount[];
+  selectedDate?: string | null;
+  onSelectDate?: (date: string | null) => void;
+}) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const max = Math.max(1, ...data.map((point) => point.count));
   const total = data.reduce((sum, point) => sum + point.count, 0);
+  const selectedKey = selectedDate ? dateKey(selectedDate) : null;
 
-  // Show at most ~8 date labels no matter how many bars there are, always including the last one
-  // (today/most recent) so the axis stays readable instead of a wall of overlapping text.
   const labelStep = Math.max(1, Math.ceil(data.length / 8));
 
   if (data.length === 0 || total === 0) {
@@ -33,35 +45,61 @@ export function ApplicationTrendChart({ data }: { data: DailyApplicationCount[] 
     <div>
       <p className="mb-3 text-sm text-slate-500">
         <span className="font-semibold text-slate-900">{total}</span> application{total === 1 ? '' : 's'} tracked
+        {onSelectDate && <span className="ml-1.5 text-slate-400">· click a day to see those applications</span>}
       </p>
       <div className="flex h-48 items-end gap-1 sm:gap-1.5">
-        {data.map((point, index) => (
-          <div
-            key={point.date}
-            className="group relative flex h-full flex-1 flex-col items-center justify-end"
-            onMouseEnter={() => setHoverIndex(index)}
-            onMouseLeave={() => setHoverIndex(null)}
-          >
-            {hoverIndex === index && (
-              <div className="absolute bottom-full z-10 mb-1.5 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white shadow-lg">
-                {point.count} on {shortDate(point.date)}
-              </div>
-            )}
-            <div
-              className={`w-full rounded-t-md transition-all ${
-                point.count > 0
-                  ? 'bg-gradient-to-t from-brand-600 to-brand-400 group-hover:from-brand-700 group-hover:to-brand-500'
-                  : 'bg-slate-100'
+        {data.map((point, index) => {
+          const key = dateKey(point.date);
+          const isSelected = selectedKey === key;
+          const canSelect = Boolean(onSelectDate) && point.count > 0;
+          return (
+            <button
+              key={point.date}
+              type="button"
+              disabled={!canSelect}
+              className={`group relative flex h-full flex-1 flex-col items-center justify-end ${
+                canSelect ? 'cursor-pointer' : 'cursor-default'
               }`}
-              style={{ height: `${Math.max((point.count / max) * 100, point.count > 0 ? 4 : 2)}%` }}
-            />
-          </div>
-        ))}
+              onMouseEnter={() => setHoverIndex(index)}
+              onMouseLeave={() => setHoverIndex(null)}
+              onClick={() => {
+                if (!canSelect || !onSelectDate) return;
+                onSelectDate(isSelected ? null : key);
+              }}
+              aria-pressed={isSelected}
+              aria-label={`${point.count} on ${formatShortDate(point.date)}`}
+            >
+              {hoverIndex === index && (
+                <div className="absolute bottom-full z-10 mb-1.5 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white shadow-lg">
+                  {point.count} on {formatShortDate(point.date)}
+                </div>
+              )}
+              {point.count > 0 && (
+                <span className="mb-0.5 text-[10px] font-semibold leading-none text-slate-600">{point.count}</span>
+              )}
+              <div
+                className={`w-full rounded-t-md transition-all ${
+                  point.count > 0
+                    ? isSelected
+                      ? 'bg-gradient-to-t from-brand-800 to-brand-500 ring-2 ring-brand-600 ring-offset-1'
+                      : 'bg-gradient-to-t from-brand-600 to-brand-400 group-hover:from-brand-700 group-hover:to-brand-500'
+                    : 'bg-slate-100'
+                }`}
+                style={{ height: `${Math.max((point.count / max) * 100, point.count > 0 ? 4 : 2)}%` }}
+              />
+            </button>
+          );
+        })}
       </div>
       <div className="mt-2 flex gap-1 sm:gap-1.5">
         {data.map((point, index) => (
-          <div key={point.date} className="flex-1 text-center text-[10px] text-slate-400">
-            {index % labelStep === 0 || index === data.length - 1 ? shortDate(point.date) : ''}
+          <div
+            key={point.date}
+            className={`flex-1 text-center text-[10px] ${
+              selectedKey === dateKey(point.date) ? 'font-semibold text-brand-700' : 'text-slate-400'
+            }`}
+          >
+            {index % labelStep === 0 || index === data.length - 1 ? formatShortDate(point.date) : ''}
           </div>
         ))}
       </div>

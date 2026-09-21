@@ -1,10 +1,12 @@
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
 from app.common.schemas import ApiResponse, PageResponse
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.dashboard.schemas import ApplicationStatsResponse
 from app.tracking import service
 from app.tracking.enums import ApplicationStatus
 from app.tracking.schemas import (
@@ -49,12 +51,25 @@ def create_screenshot_upload_url(
 def list_applications(
     status: ApplicationStatus | None = Query(default=None),
     q: str | None = Query(default=None, max_length=255),
+    trackedOn: date | None = Query(default=None),
     page: int = Query(default=0, ge=0),
     size: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ApiResponse[PageResponse[JobApplicationResponse]]:
-    return ApiResponse.of(service.list_applications(db, current_user.id, status, page, size, q))
+    return ApiResponse.of(service.list_applications(db, current_user.id, status, page, size, q, trackedOn))
+
+
+@applications_router.get("/stats", response_model=ApiResponse[ApplicationStatsResponse])
+def my_application_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ApiResponse[ApplicationStatsResponse]:
+    # Same daily buckets as the manager chart, scoped to the caller — imported lazily so
+    # tracking.router doesn't create an import cycle with dashboard.service at module load.
+    from app.dashboard.service import get_application_stats
+
+    return ApiResponse.of(get_application_stats(db, current_user.id))
 
 
 @applications_router.get("/{application_id}", response_model=ApiResponse[JobApplicationResponse])

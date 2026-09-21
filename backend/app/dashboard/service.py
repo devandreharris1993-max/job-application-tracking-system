@@ -1,11 +1,12 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import Date, cast, func
 from sqlalchemy.orm import Session
 
 from app.common.pagination import paginate
 from app.common.schemas import PageResponse
+from app.core.database import utcnow
 from app.core.exceptions import InvalidStateException, ResourceNotFoundException
 from app.dashboard.schemas import (
     ApplicationStatsResponse,
@@ -20,7 +21,7 @@ from app.resumes.schemas import RegisterResumeRequest, ResumeResponse, UploadUrl
 from app.resumes.storage import ResumeStorage
 from app.tracking.enums import ApplicationStatus
 from app.tracking.models import ApplicationHistory, JobApplication
-from app.tracking.service import apply_application_search
+from app.tracking.service import apply_application_search, apply_tracked_on_filter
 from app.tracking.screenshot_storage import ScreenshotStorage
 from app.users.enums import AccountStatus, Role
 from app.users.models import User
@@ -110,6 +111,7 @@ def list_all_applications(
     page: int,
     size: int,
     q: str | None = None,
+    tracked_on: date | None = None,
 ) -> PageResponse[ManagerApplicationResponse]:
     """Cross-user application feed for the manager dashboard - every application from every
     applicant (not just counts), optionally narrowed to one user and/or one status."""
@@ -119,6 +121,7 @@ def list_all_applications(
     if status_filter is not None:
         query = query.filter(JobApplication.status == status_filter)
     query = apply_application_search(query, q)
+    query = apply_tracked_on_filter(query, tracked_on)
     query = query.order_by(JobApplication.created_at.desc())
 
     rows, total_elements, total_pages, last = paginate(query, page, size)
@@ -269,19 +272,34 @@ def _latest_resumes_for(db: Session, user_ids: list[uuid.UUID]) -> dict[uuid.UUI
     return latest
 
 
+def _as_date(value: date | datetime) -> date:
+    """Drivers sometimes return DATE groupings as datetime; the chart window is built from
+    `datetime.date` keys, so a type mismatch here silently drops every real count to 0."""
+    return value.date() if isinstance(value, datetime) else value
+
+
 def _build_daily_trend(db: Session, user_id_filter: uuid.UUID | None = None) -> list[DailyApplicationCount]:
-    since = date.today() - timedelta(days=_TREND_DAYS - 1)
-    query = db.query(JobApplication.applied_date, func.count(JobApplication.id)).filter(
-        JobApplication.applied_date >= since
-    )
+    # created_at is the server-recorded tracking time (tz-naive UTC — see utcnow). applied_date is
+    # derived from the client's clock converted to a UTC date and can land on a different calendar
+    # day than the row was actually stored, which made the daily totals look wrong. Count the UTC
+    # calendar day of created_at, and build the 14-day window from UTC today so "today" is the same
+    # day the rows were bucketed into — not the host machine's local date.today().
+    today = utcnow().date()
+    since = today - timedelta(days=_TREND_DAYS - 1)
+    since_start = datetime(since.year, since.month, since.day)
+    day = cast(JobApplication.created_at, Date)
+
+    query = db.query(day, func.count(JobApplication.id)).filter(JobApplication.created_at >= since_start)
     if user_id_filter is not None:
         query = query.filter(JobApplication.user_id == user_id_filter)
-    rows = query.group_by(JobApplication.applied_date).all()
-    counts_by_date = dict(rows)
+    rows = query.group_by(day).all()
+
+    counts_by_date: dict[date, int] = {}
+    for day_value, count in rows:
+        counts_by_date[_as_date(day_value)] = int(count)
 
     trend: list[DailyApplicationCount] = []
     current = since
-    today = date.today()
     while current <= today:
         trend.append(DailyApplicationCount(date=current, count=counts_by_date.get(current, 0)))
         current += timedelta(days=1)

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -87,7 +87,10 @@ def record_event(db: Session, user: User, request: ApplicationEventRequest) -> A
         job_title=request.jobTitle,
         job_url=request.jobUrl,
         status=ApplicationStatus.APPLIED,
-        applied_date=request.timestamp.astimezone(timezone.utc).date(),
+        # Same UTC calendar day the daily chart buckets on (created_at via utcnow), not the
+        # client's ISO timestamp — a late-evening local submit can already be "tomorrow" in UTC
+        # from the client clock, which used to put the row on a different day than it was counted.
+        applied_date=utcnow().date(),
         screenshot_url=screenshot_url,
     )
     db.add(application)
@@ -126,6 +129,15 @@ def apply_application_search(query: Query, q: str | None) -> Query:
     )
 
 
+def apply_tracked_on_filter(query: Query, tracked_on: date | None) -> Query:
+    """Keeps rows whose created_at falls on this UTC calendar day — the same bucket the daily
+    chart uses — so clicking a bar shows exactly the applications that bar counted."""
+    if tracked_on is None:
+        return query
+    start = datetime(tracked_on.year, tracked_on.month, tracked_on.day)
+    return query.filter(JobApplication.created_at >= start, JobApplication.created_at < start + timedelta(days=1))
+
+
 def list_applications(
     db: Session,
     user_id: uuid.UUID,
@@ -133,11 +145,13 @@ def list_applications(
     page: int,
     size: int,
     q: str | None = None,
+    tracked_on: date | None = None,
 ) -> PageResponse[JobApplicationResponse]:
     query = db.query(JobApplication).filter(JobApplication.user_id == user_id)
     if status_filter is not None:
         query = query.filter(JobApplication.status == status_filter)
     query = apply_application_search(query, q)
+    query = apply_tracked_on_filter(query, tracked_on)
     query = query.order_by(JobApplication.created_at.desc())
 
     items, total_elements, total_pages, last = paginate(query, page, size)

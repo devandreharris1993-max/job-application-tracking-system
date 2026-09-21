@@ -18,15 +18,23 @@ export function ManagerUserDetailPage() {
   const [status, setStatus] = useState<ApplicationStatus | ''>('');
   const [searchInput, setSearchInput] = useState('');
   const search = useDebouncedValue(searchInput, 300);
+  const [trackedOn, setTrackedOn] = useState<string | null>(null);
   const [page, setPage] = useState(0);
 
   useEffect(() => {
     setPage(0);
-  }, [status, search]);
+  }, [status, search, trackedOn]);
 
   const userQuery = useManagedUserQuery(userId ?? '');
   const statsQuery = useApplicationStatsQuery(userId);
-  const applicationsQuery = useAllApplicationsQuery({ userId, status, q: search, page, size: PAGE_SIZE });
+  const applicationsQuery = useAllApplicationsQuery({
+    userId,
+    status,
+    q: search,
+    trackedOn: trackedOn ?? undefined,
+    page,
+    size: PAGE_SIZE,
+  });
   const applications = applicationsQuery.data;
 
   const totalApplied = userQuery.data?.applicationCount ?? 0;
@@ -90,12 +98,34 @@ export function ManagerUserDetailPage() {
           </div>
         )}
         {statsQuery.isError && <p className="text-sm text-red-600">Failed to load application stats.</p>}
-        {statsQuery.data && <ApplicationTrendChart data={statsQuery.data.dailyTrend} />}
+        {statsQuery.data && (
+          <ApplicationTrendChart
+            data={statsQuery.data.dailyTrend}
+            selectedDate={trackedOn}
+            onSelectDate={(date) => {
+              setTrackedOn(date);
+              document.getElementById('application-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          />
+        )}
       </section>
 
-      <section>
+      <section id="application-list">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-900">All applications</h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">
+              {trackedOn ? `Applications on ${formatDate(trackedOn)}` : 'All applications'}
+            </h2>
+            {trackedOn && (
+              <button
+                type="button"
+                onClick={() => setTrackedOn(null)}
+                className="text-sm font-medium text-brand-600 hover:text-brand-700"
+              >
+                Clear day filter
+              </button>
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <ApplicationSearchField value={searchInput} onChange={setSearchInput} />
             <label className="flex items-center gap-2 text-sm">
@@ -127,11 +157,13 @@ export function ManagerUserDetailPage() {
           )}
           {applications && applications.items.length === 0 && (
             <p className="py-10 text-center text-sm text-slate-500">
-              {search
-                ? `No applications match “${search}”.`
-                : status
-                  ? `No applications with status ${status} for this applicant.`
-                  : 'No applications tracked for this applicant yet.'}
+              {trackedOn
+                ? `No applications tracked on ${formatDate(trackedOn)}.`
+                : search
+                  ? `No applications match “${search}”.`
+                  : status
+                    ? `No applications with status ${status} for this applicant.`
+                    : 'No applications tracked for this applicant yet.'}
             </p>
           )}
           {applications && applications.items.length > 0 && (

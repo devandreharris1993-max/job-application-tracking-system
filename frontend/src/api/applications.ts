@@ -1,9 +1,17 @@
 import { apiClient } from './client';
-import type { ApiEnvelope, ApplicationHistoryEntry, ApplicationStatus, JobApplication, PageResponse } from '../types';
+import type {
+  ApiEnvelope,
+  ApplicationHistoryEntry,
+  ApplicationStats,
+  ApplicationStatus,
+  JobApplication,
+  PageResponse,
+} from '../types';
 
 export interface ListApplicationsParams {
   status?: ApplicationStatus | '';
   q?: string;
+  trackedOn?: string;
   page: number;
   size: number;
 }
@@ -15,8 +23,14 @@ export async function listApplications(params: ListApplicationsParams): Promise<
       size: params.size,
       status: params.status || undefined,
       q: params.q?.trim() || undefined,
+      trackedOn: params.trackedOn || undefined,
     },
   });
+  return data.data;
+}
+
+export async function getMyApplicationStats(): Promise<ApplicationStats> {
+  const { data } = await apiClient.get<ApiEnvelope<ApplicationStats>>('/applications/stats');
   return data.data;
 }
 

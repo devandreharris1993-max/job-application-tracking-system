@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ApplicationRow } from '../components/ApplicationRow';
 import { ApplicationSearchField } from '../components/ApplicationSearchField';
+import { ApplicationTrendChart } from '../components/ApplicationTrendChart';
 import { GoalProgressRing } from '../components/GoalProgressRing';
 import { Spinner } from '../components/Spinner';
-import { useApplicationsQuery } from '../hooks/useApplications';
+import { useApplicationsQuery, useMyApplicationStatsQuery } from '../hooks/useApplications';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { APPLICATION_GOAL, APPLICATION_STATUSES, type ApplicationStatus } from '../types';
+import { formatDate } from '../utils/format';
 
 const PAGE_SIZE = 10;
 
@@ -13,13 +15,21 @@ export function ApplicationsPage() {
   const [status, setStatus] = useState<ApplicationStatus | ''>('');
   const [searchInput, setSearchInput] = useState('');
   const search = useDebouncedValue(searchInput, 300);
+  const [trackedOn, setTrackedOn] = useState<string | null>(null);
   const [page, setPage] = useState(0);
 
   useEffect(() => {
     setPage(0);
-  }, [status, search]);
+  }, [status, search, trackedOn]);
 
-  const query = useApplicationsQuery({ status, q: search, page, size: PAGE_SIZE });
+  const statsQuery = useMyApplicationStatsQuery();
+  const query = useApplicationsQuery({
+    status,
+    q: search,
+    trackedOn: trackedOn ?? undefined,
+    page,
+    size: PAGE_SIZE,
+  });
   const data = query.data;
 
   // Deliberately unfiltered (and cached separately from `query` above under a different query
@@ -77,6 +87,31 @@ export function ApplicationsPage() {
         </div>
       )}
 
+      {statsQuery.data && (
+        <section className="card mb-6 p-5">
+          <h2 className="mb-4 text-lg font-semibold text-slate-900">Applications — last 14 days</h2>
+          <ApplicationTrendChart
+            data={statsQuery.data.dailyTrend}
+            selectedDate={trackedOn}
+            onSelectDate={(date) => {
+              setTrackedOn(date);
+              document.getElementById('application-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          />
+        </section>
+      )}
+
+      <div id="application-list" className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-slate-900">
+          {trackedOn ? `Applications on ${formatDate(trackedOn)}` : 'All applications'}
+        </h2>
+        {trackedOn && (
+          <button type="button" onClick={() => setTrackedOn(null)} className="text-sm font-medium text-brand-600 hover:text-brand-700">
+            Clear day filter
+          </button>
+        )}
+      </div>
+
       <div className="card px-5">
         {query.isLoading && (
           <div className="flex justify-center py-10">
@@ -90,11 +125,13 @@ export function ApplicationsPage() {
 
         {data && data.items.length === 0 && (
           <p className="py-10 text-center text-sm text-slate-500">
-            {search
-              ? `No applications match “${search}”.`
-              : status
-                ? `No applications with status ${status}.`
-                : 'No applications yet. Install the Chrome extension and apply to a job to see it show up here.'}
+            {trackedOn
+              ? `No applications tracked on ${formatDate(trackedOn)}.`
+              : search
+                ? `No applications match “${search}”.`
+                : status
+                  ? `No applications with status ${status}.`
+                  : 'No applications yet. Install the Chrome extension and apply to a job to see it show up here.'}
           </p>
         )}
 

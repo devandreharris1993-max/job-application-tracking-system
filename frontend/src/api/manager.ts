@@ -63,6 +63,7 @@ export interface ListAllApplicationsParams {
   userId?: string;
   status?: ApplicationStatus | '';
   q?: string;
+  trackedOn?: string;
   page: number;
   size: number;
 }
@@ -75,6 +76,7 @@ export async function listAllApplications(
       userId: params.userId || undefined,
       status: params.status || undefined,
       q: params.q?.trim() || undefined,
+      trackedOn: params.trackedOn || undefined,
       page: params.page,
       size: params.size,
     },

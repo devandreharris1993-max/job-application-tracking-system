@@ -208,6 +208,11 @@ function sleep(ms: number): Promise<void> {
 const TAB_LOAD_POLL_MS = 200;
 const TAB_LOAD_MAX_WAIT_MS = 6_000;
 const POST_LOAD_SETTLE_MS = 900;
+// captureVisibleTab only sees whatever is currently painted in the window. After we activate a
+// background tab so we can capture it (see activateTabForCapture), Chrome still needs a beat to
+// actually composite that tab onto the window — capturing immediately after tabs.update often
+// yields a blank or previous-tab frame instead of the confirmation page.
+const TAB_ACTIVATE_PAINT_MS = 220;
 
 async function waitForTabToSettle(tabId: number): Promise<void> {
   const deadline = Date.now() + TAB_LOAD_MAX_WAIT_MS;
@@ -217,6 +222,44 @@ async function waitForTabToSettle(tabId: number): Promise<void> {
     await sleep(TAB_LOAD_POLL_MS);
   }
   await sleep(POST_LOAD_SETTLE_MS);
+}
+
+/** chrome.tabs.captureVisibleTab can only photograph the *active* tab of a window, not a specific
+ * tabId. If the user switched away mid-tracking (very common — they submit, then hop to the next
+ * job while the confirmation page is still settling), capturing without this would either skip or
+ * silently attach a screenshot of whatever they switched to. Briefly bring the application tab
+ * forward, then hand focus back to whichever tab they were looking at. */
+async function activateTabForCapture(tabId: number): Promise<{ windowId: number; restoreTabId: number | null } | null> {
+  const tab = await getTab(tabId);
+  if (!tab?.windowId) return null;
+
+  let restoreTabId: number | null = null;
+  if (tab.active !== true) {
+    try {
+      const [currentActive] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+      if (currentActive?.id != null && currentActive.id !== tabId) {
+        restoreTabId = currentActive.id;
+      }
+      await chrome.tabs.update(tabId, { active: true });
+    } catch (error) {
+      console.debug('[JATS] failed to activate tab for screenshot', tabId, error);
+      return null;
+    }
+    await sleep(TAB_ACTIVATE_PAINT_MS);
+  }
+
+  const activated = await getTab(tabId);
+  if (!activated?.windowId || activated.active !== true) return null;
+  return { windowId: activated.windowId, restoreTabId };
+}
+
+async function restoreTabAfterCapture(restoreTabId: number | null): Promise<void> {
+  if (restoreTabId == null) return;
+  try {
+    await chrome.tabs.update(restoreTabId, { active: true });
+  } catch {
+    // That tab may have been closed while we were capturing — nothing to restore then.
+  }
 }
 
 /** chrome.tabs.captureVisibleTab returns a base64 data: URL. Decoded by hand with atob() rather
@@ -262,11 +305,8 @@ async function captureAndUploadScreenshot(
   onStage?: (message: string, step: number) => Promise<void>,
 ): Promise<ScreenshotOutcome> {
   const tab = await getTab(tabId);
-  // chrome.tabs.captureVisibleTab captures whatever is currently on-screen in the *window*, not
-  // necessarily this specific tab - if the user already switched to a different tab by the time
-  // detection got here, capturing anyway would silently attach a screenshot of the wrong page.
-  if (!tab?.windowId || tab.active !== true) {
-    const detail = 'tab was no longer the active tab in its window at detection time';
+  if (!tab?.windowId) {
+    const detail = 'tab was closed before the screenshot could be captured';
     console.debug('[JATS] skipping screenshot for tab', tabId, '-', detail);
     return { status: 'skipped', detail };
   }
@@ -274,25 +314,32 @@ async function captureAndUploadScreenshot(
   await onStage?.('Waiting for the confirmation page to finish loading…', 2);
   await waitForTabToSettle(tabId);
 
-  // Re-check after waiting - the tab may have navigated away, closed, or lost focus during that
-  // window (waitForTabToSettle can take up to ~7s), which the check above (taken before waiting)
-  // wouldn't have caught.
-  const settledTab = await getTab(tabId);
-  if (!settledTab?.windowId || settledTab.active !== true) {
-    const detail = 'tab was no longer the active tab in its window after waiting for the page to settle';
+  // The tab may have been closed during that wait (up to ~7s). Switching away is fine — we bring
+  // it back just long enough to capture — but a closed tab can't be photographed at all.
+  if (!(await getTab(tabId))?.windowId) {
+    const detail = 'tab was closed while waiting for the confirmation page to settle';
     console.debug('[JATS] skipping screenshot for tab', tabId, '-', detail);
     return { status: 'skipped', detail };
   }
 
   await onStage?.('Capturing screenshot…', 3);
+  const activated = await activateTabForCapture(tabId);
+  if (!activated) {
+    const detail = 'could not bring the application tab to the front for capture';
+    console.debug('[JATS] skipping screenshot for tab', tabId, '-', detail);
+    return { status: 'skipped', detail };
+  }
+
   let dataUrl: string;
   try {
-    dataUrl = await chrome.tabs.captureVisibleTab(settledTab.windowId, { format: 'png' });
+    dataUrl = await chrome.tabs.captureVisibleTab(activated.windowId, { format: 'png' });
   } catch (error) {
+    await restoreTabAfterCapture(activated.restoreTabId);
     const detail = error instanceof Error ? error.message : String(error);
     console.warn('[JATS] chrome.tabs.captureVisibleTab failed for tab', tabId, '-', detail);
     return { status: 'failed', detail };
   }
+  await restoreTabAfterCapture(activated.restoreTabId);
 
   let blob: Blob;
   try {
