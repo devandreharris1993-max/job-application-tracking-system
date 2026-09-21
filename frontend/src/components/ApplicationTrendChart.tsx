@@ -1,10 +1,6 @@
 import { useState } from 'react';
 import type { DailyApplicationCount } from '../types';
-import { formatShortDate } from '../utils/format';
-
-function dateKey(value: string): string {
-  return value.slice(0, 10);
-}
+import { calendarDateKey, formatShortDate } from '../utils/format';
 
 /** A lightweight CSS bar chart — deliberately not pulling in a charting library for one chart.
  * Purely a count-of-applications-per-day view (no per-status breakdown) so it stays meaningful
@@ -29,7 +25,7 @@ export function ApplicationTrendChart({
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const max = Math.max(1, ...data.map((point) => point.count));
   const total = data.reduce((sum, point) => sum + point.count, 0);
-  const selectedKey = selectedDate ? dateKey(selectedDate) : null;
+  const selectedKey = selectedDate ? calendarDateKey(selectedDate) : null;
 
   const labelStep = Math.max(1, Math.ceil(data.length / 8));
 
@@ -49,7 +45,7 @@ export function ApplicationTrendChart({
       </p>
       <div className="flex h-48 items-end gap-1 sm:gap-1.5">
         {data.map((point, index) => {
-          const key = dateKey(point.date);
+          const key = calendarDateKey(point.date);
           const isSelected = selectedKey === key;
           const canSelect = Boolean(onSelectDate) && point.count > 0;
           return (
@@ -96,7 +92,7 @@ export function ApplicationTrendChart({
           <div
             key={point.date}
             className={`flex-1 text-center text-[10px] ${
-              selectedKey === dateKey(point.date) ? 'font-semibold text-brand-700' : 'text-slate-400'
+              selectedKey === calendarDateKey(point.date) ? 'font-semibold text-brand-700' : 'text-slate-400'
             }`}
           >
             {index % labelStep === 0 || index === data.length - 1 ? formatShortDate(point.date) : ''}

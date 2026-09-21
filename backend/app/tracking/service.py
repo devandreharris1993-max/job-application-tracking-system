@@ -130,12 +130,11 @@ def apply_application_search(query: Query, q: str | None) -> Query:
 
 
 def apply_tracked_on_filter(query: Query, tracked_on: date | None) -> Query:
-    """Keeps rows whose created_at falls on this UTC calendar day — the same bucket the daily
-    chart uses — so clicking a bar shows exactly the applications that bar counted."""
+    """Keeps rows whose applied_date is this calendar day — the same date the table prints as
+    "Applied" and the month calendar highlights — so clicking a day lists exactly those rows."""
     if tracked_on is None:
         return query
-    start = datetime(tracked_on.year, tracked_on.month, tracked_on.day)
-    return query.filter(JobApplication.created_at >= start, JobApplication.created_at < start + timedelta(days=1))
+    return query.filter(JobApplication.applied_date == tracked_on)
 
 
 def list_applications(

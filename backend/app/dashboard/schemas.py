@@ -28,8 +28,8 @@ class DailyApplicationCount(BaseModel):
 class ApplicationStatsResponse(BaseModel):
     statusBreakdown: dict[ApplicationStatus, int]
     dailyTrend: list[DailyApplicationCount]
-    # Only days that have at least one tracked application (UTC calendar day of created_at).
-    # The calendar UI uses this sparse list to highlight those cells without filling empty months.
+    # Only days that have at least one tracked application (applied_date, the calendar day
+    # shown on each row). The calendar UI uses this sparse list to highlight those cells.
     calendarDays: list[DailyApplicationCount]
 
 

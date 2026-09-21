@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import Date, cast, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.common.pagination import paginate
@@ -283,17 +283,14 @@ def _as_date(value: date | datetime) -> date:
 
 
 def _build_daily_trend(db: Session, user_id_filter: uuid.UUID | None = None) -> list[DailyApplicationCount]:
-    # created_at is the server-recorded tracking time (tz-naive UTC — see utcnow). applied_date is
-    # derived from the client's clock converted to a UTC date and can land on a different calendar
-    # day than the row was actually stored, which made the daily totals look wrong. Count the UTC
-    # calendar day of created_at, and build the 14-day window from UTC today so "today" is the same
-    # day the rows were bucketed into — not the host machine's local date.today().
+    # Count by applied_date (the calendar day printed on each application) so the 14-day chart,
+    # month calendar, and trackedOn table filter all agree. Window is UTC today so "today" does
+    # not depend on the host machine's local date.today().
     today = utcnow().date()
     since = today - timedelta(days=_TREND_DAYS - 1)
-    since_start = datetime(since.year, since.month, since.day)
-    day = cast(JobApplication.created_at, Date)
+    day = JobApplication.applied_date
 
-    query = db.query(day, func.count(JobApplication.id)).filter(JobApplication.created_at >= since_start)
+    query = db.query(day, func.count(JobApplication.id)).filter(day >= since, day <= today)
     if user_id_filter is not None:
         query = query.filter(JobApplication.user_id == user_id_filter)
     rows = query.group_by(day).all()
@@ -311,9 +308,9 @@ def _build_daily_trend(db: Session, user_id_filter: uuid.UUID | None = None) -> 
 
 
 def _build_calendar_days(db: Session, user_id_filter: uuid.UUID | None = None) -> list[DailyApplicationCount]:
-    """Sparse per-day counts for the month calendar. Same UTC created_at bucket as dailyTrend
+    """Sparse per-day counts for the month calendar. Same applied_date bucket as dailyTrend
     and the trackedOn list filter, so a highlighted cell opens the same day's applications."""
-    day = cast(JobApplication.created_at, Date)
+    day = JobApplication.applied_date
     query = db.query(day, func.count(JobApplication.id))
     if user_id_filter is not None:
         query = query.filter(JobApplication.user_id == user_id_filter)
@@ -322,7 +319,7 @@ def _build_calendar_days(db: Session, user_id_filter: uuid.UUID | None = None) -
     days: list[DailyApplicationCount] = []
     for day_value, count in rows:
         n = int(count)
-        if n > 0:
+        if n > 0 and day_value is not None:
             days.append(DailyApplicationCount(date=_as_date(day_value), count=n))
     return days
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DailyApplicationCount } from '../types';
-import { formatDate } from '../utils/format';
+import { calendarDateKey, formatDate } from '../utils/format';
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
@@ -84,12 +84,12 @@ export function ApplicationCalendar({
   const counts = useMemo(() => {
     const map = new Map<string, number>();
     for (const point of days) {
-      if (point.count > 0) map.set(point.date.slice(0, 10), point.count);
+      if (point.count > 0) map.set(calendarDateKey(point.date), point.count);
     }
     return map;
   }, [days]);
 
-  const selectedKey = selectedDate ? selectedDate.slice(0, 10) : null;
+  const selectedKey = selectedDate ? calendarDateKey(selectedDate) : null;
   const [view, setView] = useState(() => {
     const parsed = selectedKey ? parseDateKey(selectedKey) : null;
     const now = new Date();

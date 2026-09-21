@@ -42,6 +42,7 @@ export function ManagerUserDetailPage() {
 
   const selectDay = (date: string | null) => {
     setTrackedOn(date);
+    setPage(0);
     document.getElementById('application-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
