@@ -42,7 +42,9 @@ async function safeFetch(path: string, init?: RequestInit): Promise<Response> {
   }
 }
 
-const CONFIG_STORAGE_KEY = 'jats.config';
+// Exported so other contexts (sidepanel.ts) can listen for chrome.storage.onChanged on exactly
+// this key, rather than polling - see that file's storage-change listener for why that matters.
+export const CONFIG_STORAGE_KEY = 'jats.config';
 
 const DEFAULT_CONFIG: StoredConfig = {
   token: null,
@@ -58,6 +60,39 @@ export async function getConfig(): Promise<StoredConfig> {
 
 export async function saveConfig(config: StoredConfig): Promise<void> {
   await chrome.storage.local.set({ [CONFIG_STORAGE_KEY]: config });
+}
+
+// A 401 from any authenticated endpoint means the stored token is unusable no matter how many
+// times it's retried (expired, malformed, or the account was deleted server-side - see the
+// backend's get_current_user) - yet nothing was clearing it client-side, so the extension stayed
+// stuck thinking it was logged in (config.token still set) while every authenticated call kept
+// failing with the same generic "Authentication required", with no indication of what to do about
+// it. Clearing the token here means the very next getConfig() anywhere in the extension correctly
+// reports "logged out" - and, combined with sidepanel.ts's chrome.storage.onChanged listener, an
+// already-open side panel updates to the clear "please log in" state immediately instead of
+// silently continuing to show that same stale error until it happens to reload.
+async function clearInvalidSession(): Promise<void> {
+  const config = await getConfig();
+  if (config.token) {
+    await saveConfig({ ...DEFAULT_CONFIG });
+  }
+}
+
+const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again from the extension options page.';
+
+/** Like safeFetch, but for endpoints that require the caller's token - attaches the Authorization
+ * header and, on a 401, clears the now-known-bad stored session (see clearInvalidSession) before
+ * the caller even has a chance to see the response, so there's no window where some call sites
+ * remember to handle an expired session and others don't. */
+async function authFetch(path: string, token: string, init?: RequestInit): Promise<Response> {
+  const response = await safeFetch(path, {
+    ...init,
+    headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 401) {
+    await clearInvalidSession();
+  }
+  return response;
 }
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
@@ -78,14 +113,12 @@ export async function login(email: string, password: string): Promise<LoginRespo
 
 /** Best-effort refresh of the account status (e.g. after a manager approves the account). */
 export async function fetchCurrentUser(token: string): Promise<UserSummaryData> {
-  const response = await safeFetch('/users/me', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const response = await authFetch('/users/me', token);
 
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<UserSummaryData> | null;
 
   if (!response.ok || !envelope?.data) {
-    throw new Error(envelope?.message ?? `Failed to load account status (${response.status})`);
+    throw new Error(response.status === 401 ? SESSION_EXPIRED_MESSAGE : envelope?.message ?? `Failed to load account status (${response.status})`);
   }
 
   return envelope.data;
@@ -100,19 +133,16 @@ export async function submitApplicationEvent(
     throw new Error('Not logged in. Open the extension options page to log in first.');
   }
 
-  const response = await safeFetch('/application-events', {
+  const response = await authFetch('/application-events', config.token, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.token}`,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(event),
   });
 
   const body = (await response.json().catch(() => null)) as ApplicationEventResponse | null;
 
   if (!response.ok || !body) {
-    throw new Error(body?.message ?? `Request failed (${response.status})`);
+    throw new Error(response.status === 401 ? SESSION_EXPIRED_MESSAGE : body?.message ?? `Request failed (${response.status})`);
   }
 
   return body;
@@ -129,14 +159,12 @@ export async function fetchRecentApplications(size = 8): Promise<JobApplication[
     throw new Error('Not logged in.');
   }
 
-  const response = await safeFetch(`/applications?page=0&size=${size}`, {
-    headers: { Authorization: `Bearer ${config.token}` },
-  });
+  const response = await authFetch(`/applications?page=0&size=${size}`, config.token);
 
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<PageResponse<JobApplication>> | null;
 
   if (!response.ok || !envelope?.data) {
-    throw new Error(envelope?.message ?? `Failed to load recent activity (${response.status})`);
+    throw new Error(response.status === 401 ? SESSION_EXPIRED_MESSAGE : envelope?.message ?? `Failed to load recent activity (${response.status})`);
   }
 
   return envelope.data.items;
@@ -152,19 +180,16 @@ export async function createScreenshotUploadUrl(contentType: string): Promise<Sc
     throw new Error('Not logged in.');
   }
 
-  const response = await safeFetch('/application-events/screenshot-upload-url', {
+  const response = await authFetch('/application-events/screenshot-upload-url', config.token, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.token}`,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contentType }),
   });
 
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<ScreenshotUploadUrlResponse> | null;
 
   if (!response.ok || !envelope?.data) {
-    throw new Error(envelope?.message ?? `Failed to get screenshot upload URL (${response.status})`);
+    throw new Error(response.status === 401 ? SESSION_EXPIRED_MESSAGE : envelope?.message ?? `Failed to get screenshot upload URL (${response.status})`);
   }
 
   return envelope.data;
@@ -180,14 +205,12 @@ export async function fetchMyResumes(): Promise<ManagedResume[]> {
     throw new Error('Not logged in.');
   }
 
-  const response = await safeFetch('/resumes', {
-    headers: { Authorization: `Bearer ${config.token}` },
-  });
+  const response = await authFetch('/resumes', config.token);
 
   const envelope = (await response.json().catch(() => null)) as ApiEnvelope<ManagedResume[]> | null;
 
   if (!response.ok || !envelope?.data) {
-    throw new Error(envelope?.message ?? `Failed to load resume (${response.status})`);
+    throw new Error(response.status === 401 ? SESSION_EXPIRED_MESSAGE : envelope?.message ?? `Failed to load resume (${response.status})`);
   }
 
   return envelope.data;

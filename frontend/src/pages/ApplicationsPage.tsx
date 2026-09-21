@@ -1,21 +1,25 @@
 import { useEffect, useState } from 'react';
 import { ApplicationRow } from '../components/ApplicationRow';
+import { ApplicationSearchField } from '../components/ApplicationSearchField';
 import { GoalProgressRing } from '../components/GoalProgressRing';
 import { Spinner } from '../components/Spinner';
 import { useApplicationsQuery } from '../hooks/useApplications';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { APPLICATION_GOAL, APPLICATION_STATUSES, type ApplicationStatus } from '../types';
 
 const PAGE_SIZE = 10;
 
 export function ApplicationsPage() {
   const [status, setStatus] = useState<ApplicationStatus | ''>('');
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput, 300);
   const [page, setPage] = useState(0);
 
   useEffect(() => {
     setPage(0);
-  }, [status]);
+  }, [status, search]);
 
-  const query = useApplicationsQuery({ status, page, size: PAGE_SIZE });
+  const query = useApplicationsQuery({ status, q: search, page, size: PAGE_SIZE });
   const data = query.data;
 
   // Deliberately unfiltered (and cached separately from `query` above under a different query
@@ -35,21 +39,24 @@ export function ApplicationsPage() {
           </p>
         </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-slate-600">Filter by status</span>
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value as ApplicationStatus | '')}
-            className="select"
-          >
-            <option value="">All</option>
-            {APPLICATION_STATUSES.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <ApplicationSearchField value={searchInput} onChange={setSearchInput} />
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-slate-600">Filter by status</span>
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as ApplicationStatus | '')}
+              className="select"
+            >
+              <option value="">All</option>
+              {APPLICATION_STATUSES.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {totalQuery.data && (
@@ -83,8 +90,11 @@ export function ApplicationsPage() {
 
         {data && data.items.length === 0 && (
           <p className="py-10 text-center text-sm text-slate-500">
-            No applications {status ? `with status ${status}` : 'yet'}. Install the Chrome extension
-            and apply to a job to see it show up here.
+            {search
+              ? `No applications match “${search}”.`
+              : status
+                ? `No applications with status ${status}.`
+                : 'No applications yet. Install the Chrome extension and apply to a job to see it show up here.'}
           </p>
         )}
 

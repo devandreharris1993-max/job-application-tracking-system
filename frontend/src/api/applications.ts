@@ -3,6 +3,7 @@ import type { ApiEnvelope, ApplicationHistoryEntry, ApplicationStatus, JobApplic
 
 export interface ListApplicationsParams {
   status?: ApplicationStatus | '';
+  q?: string;
   page: number;
   size: number;
 }
@@ -13,6 +14,7 @@ export async function listApplications(params: ListApplicationsParams): Promise<
       page: params.page,
       size: params.size,
       status: params.status || undefined,
+      q: params.q?.trim() || undefined,
     },
   });
   return data.data;

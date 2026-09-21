@@ -49,11 +49,12 @@ def list_users(
 def list_applications(
     userId: uuid.UUID | None = Query(default=None),
     status: ApplicationStatus | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=255),
     page: int = Query(default=0, ge=0),
     size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> ApiResponse[PageResponse[ManagerApplicationResponse]]:
-    return ApiResponse.of(service.list_all_applications(db, userId, status, page, size))
+    return ApiResponse.of(service.list_all_applications(db, userId, status, page, size, q))
 
 
 @router.get("/users/{user_id}", response_model=ApiResponse[ManagerUserResponse])

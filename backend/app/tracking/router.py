@@ -48,12 +48,13 @@ def create_screenshot_upload_url(
 @applications_router.get("", response_model=ApiResponse[PageResponse[JobApplicationResponse]])
 def list_applications(
     status: ApplicationStatus | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=255),
     page: int = Query(default=0, ge=0),
     size: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ApiResponse[PageResponse[JobApplicationResponse]]:
-    return ApiResponse.of(service.list_applications(db, current_user.id, status, page, size))
+    return ApiResponse.of(service.list_applications(db, current_user.id, status, page, size, q))
 
 
 @applications_router.get("/{application_id}", response_model=ApiResponse[JobApplicationResponse])

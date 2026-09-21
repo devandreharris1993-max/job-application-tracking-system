@@ -248,8 +248,15 @@ const JOB_URL_HINT_PATTERN =
 // common case — is never mistaken for a final submit.
 const APPLY_START_CLICK_PATTERN =
   /\bapply now\b|\bquick apply\b|\beasy apply\b|\bapply (for|to) this\b|^\s*apply\s*$/i;
+// A short windowed gap (rather than requiring "application" to immediately follow the verb, with
+// at most one determiner in between) rather than exact adjacency - some ATS platforms consistently
+// use "job application" as a compound noun in their own UI copy (Dayforce among them - its own
+// URLs literally use "/JobApplication"), so a button reading "Submit Job Application" needs the
+// extra word between "Submit" and "Application" to still match; the tight, adjacent-word version
+// of this pattern used to require nothing but an optional my/your/the there and missed that case
+// entirely, silently leaving text/network-based detection unarmed for the rest of the flow.
 const FINAL_SUBMIT_CLICK_PATTERN =
-  /\bsubmit(ting)? (my |your |the )?application\b|\bsend (my |your )?application\b|\bfinish(ing)? (my |your )?application\b|\bcomplete (my |your )?application\b|^\s*submit\s*$/i;
+  /\b(submit(ting)?|send(ing)?|finish(ing)?|complete(d|ing)?)\b[^.!\n]{0,25}\bapplication\b|^\s*submit\s*$/i;
 
 // A generic type="submit" button inside *some* <form> is meaningless on its own — every login,
 // search, newsletter, and "create account" form on the page also has one, and job/career sites
@@ -305,6 +312,11 @@ function extractJobPostingFromJsonLd(): DetectedJobContext | null {
 // company has to be read from a different part of the URL: the tenant subdomain for Workday
 // (acme.wd1.myworkdayjobs.com -> "acme"), or the first path segment for the rest.
 const WORKDAY_TENANT_PATTERN = /^([a-z0-9-]+)\.[a-z0-9-]+\.myworkdayjobs\.com$/i;
+// Phenom People (phenompro.com) is subdomain-tenant like Workday, not path-tenant - e.g.
+// alight.phenompro.com/us/en/apply -> "alight". Companies running Phenom on their own custom
+// domain (e.g. careers.alight.com) don't need special-casing - the generic host-based fallback
+// below already yields "Alight" correctly for those.
+const PHENOMPRO_TENANT_PATTERN = /^([a-z0-9-]+)\.phenompro\.com$/i;
 const PATH_TENANT_ATS_HOSTS = [
   'lever.co',
   'greenhouse.io',
@@ -314,6 +326,29 @@ const PATH_TENANT_ATS_HOSTS = [
   'jobvite.com',
   'recruitee.com',
 ];
+
+// Dayforce (dayforcehcm.com) is also a shared, multi-tenant domain like the ones above, but its
+// tenant/company namespace isn't reliably at a *fixed* path index the way "first segment" is for
+// those - it shows up right after "CandidatePortal" on the actual application flow (e.g.
+// can242.dayforcehcm.com/CandidatePortal/en-US/e0335/JobApplication -> "e0335"), or right after the
+// locale code on its newer job-board UI (jobs.dayforcehcm.com/en-US/roots/CANDIDATEPORTAL/... ->
+// "roots") - so this looks for whichever of those two anchors is present instead of assuming one
+// fixed position.
+const DAYFORCE_HOST = 'dayforcehcm.com';
+const LOCALE_SEGMENT_PATTERN = /^[a-z]{2}-[A-Z]{2}$/;
+
+function guessCompanyFromDayforceUrl(pathname: string): string {
+  const segments = pathname.split('/').filter((segment) => segment.length > 0);
+  const candidatePortalIndex = segments.findIndex((segment) => segment.toLowerCase() === 'candidateportal');
+  if (candidatePortalIndex !== -1 && segments[candidatePortalIndex + 1]) {
+    return humanizeSlug(segments[candidatePortalIndex + 1]);
+  }
+  const localeIndex = segments.findIndex((segment) => LOCALE_SEGMENT_PATTERN.test(segment));
+  if (localeIndex !== -1 && segments[localeIndex + 1]) {
+    return humanizeSlug(segments[localeIndex + 1]);
+  }
+  return '';
+}
 
 function humanizeSlug(rawSlug: string): string {
   let decoded = rawSlug;
@@ -337,6 +372,17 @@ function guessCompanyFromUrl(): string {
   const workdayMatch = host.match(WORKDAY_TENANT_PATTERN);
   if (workdayMatch) {
     const guess = humanizeSlug(workdayMatch[1]);
+    if (guess) return guess;
+  }
+
+  const phenomMatch = host.match(PHENOMPRO_TENANT_PATTERN);
+  if (phenomMatch) {
+    const guess = humanizeSlug(phenomMatch[1]);
+    if (guess) return guess;
+  }
+
+  if (host === DAYFORCE_HOST || host.endsWith(`.${DAYFORCE_HOST}`)) {
+    const guess = guessCompanyFromDayforceUrl(window.location.pathname);
     if (guess) return guess;
   }
 
@@ -425,14 +471,40 @@ function reportSuccessIfNotAlready(reason: string): void {
   sendMessage({ type: 'JATS_APPLICATION_SUBMIT_DETECTED', jobUrl: window.location.href, pageTitle: document.title });
 }
 
+// --- Platforms trusted to skip the submit-click gate for text/mutation-based detection ----------
+// The gate in reportSuccessIfArmed below exists because a generic wording match can't otherwise
+// tell a form's own instructional copy from a real confirmation. Some enterprise ATS platforms,
+// though, don't have the stable, per-client-independent DOM markers needed for a full AtsProfile
+// (see ATS_PROFILES above) - Dayforce (Ceridian) is one: its own docs confirm the confirmation
+// wording itself is admin-configurable per client company (Recruiting-Guide/Application-Submission
+// only ever describes it as "the career site confirms receipt of the application", not a fixed
+// phrase), and third-party scrapers report its CSS classes/ids are dynamically generated per
+// deployment rather than fixed (see https://jobo.world/ats/dayforce), so there's no single XPath to
+// pin down the way there is for Workday/Lever/Greenhouse/etc. What *is* reliably known is the URL
+// shape of its actual application flow (as opposed to its job-search/listing pages) — trusting a
+// generic, wording-tolerant SUCCESS_TEXT_PATTERNS match there, without first requiring a submit
+// click to have armed it, covers the platform even if that click was never classified as a submit
+// in the first place (e.g. a differently-worded button, or one that isn't a native <form> submit).
+const TRUSTED_TEXT_MATCH_URL_PATTERNS = [
+  // e.g. https://can242.dayforcehcm.com/CandidatePortal/en-US/e0335/JobApplication?postingid=801 —
+  // the actual multi-step application form/wizard, on whichever regional subdomain
+  // (can*/us*/globalus*/prdemo/...) a given client's Dayforce instance happens to be hosted on.
+  /\bdayforcehcm\.com\/[^?#]*\bjobapplication\b/i,
+];
+
+function isOnTrustedTextMatchPlatform(): boolean {
+  return TRUSTED_TEXT_MATCH_URL_PATTERNS.some((pattern) => pattern.test(window.location.href));
+}
+
 // Text/network-based signals are inherently ambiguous — an apply form's own "Complete your
 // application" instructions, or a click-tracking beacon fired on the *initial* Apply click, can
 // look identical to a real confirmation. Requiring a recent, genuine submit-like click (see
 // watchForSubmitClicks) before trusting them rules those out without discarding the signal
-// entirely — see the file header comment for why the URL-based check doesn't need this.
+// entirely — see the file header comment for why the URL-based check doesn't need this, and
+// isOnTrustedTextMatchPlatform above for the one other case that skips it.
 async function reportSuccessIfArmed(reason: string): Promise<void> {
   if (alreadyReported) return;
-  if (!(await isSubmitArmed())) {
+  if (!isOnTrustedTextMatchPlatform() && !(await isSubmitArmed())) {
     console.debug(LOG_PREFIX, 'suppressed (no recent submit-application click seen):', reason);
     return;
   }

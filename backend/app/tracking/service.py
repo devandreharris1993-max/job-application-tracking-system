@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
 
 from app.common.pagination import paginate
 from app.common.schemas import PageResponse
@@ -104,12 +105,39 @@ def record_event(db: Session, user: User, request: ApplicationEventRequest) -> A
     return ApplicationEventResponse.success()
 
 
+def apply_application_search(query: Query, q: str | None) -> Query:
+    """Narrows an application listing to rows whose company, title, or URL contains `q`.
+
+    Used by both the applicant-facing list and the manager's per-user list so a search
+    works across every page, not just the 10 rows currently on screen. ILIKE wildcards
+    in the user's own input are escaped so a search for "100%" matches that literal text.
+    """
+    term = (q or "").strip()
+    if not term:
+        return query
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = f"%{escaped}%"
+    return query.filter(
+        or_(
+            JobApplication.company.ilike(like, escape="\\"),
+            JobApplication.job_title.ilike(like, escape="\\"),
+            JobApplication.job_url.ilike(like, escape="\\"),
+        )
+    )
+
+
 def list_applications(
-    db: Session, user_id: uuid.UUID, status_filter: ApplicationStatus | None, page: int, size: int
+    db: Session,
+    user_id: uuid.UUID,
+    status_filter: ApplicationStatus | None,
+    page: int,
+    size: int,
+    q: str | None = None,
 ) -> PageResponse[JobApplicationResponse]:
     query = db.query(JobApplication).filter(JobApplication.user_id == user_id)
     if status_filter is not None:
         query = query.filter(JobApplication.status == status_filter)
+    query = apply_application_search(query, q)
     query = query.order_by(JobApplication.created_at.desc())
 
     items, total_elements, total_pages, last = paginate(query, page, size)

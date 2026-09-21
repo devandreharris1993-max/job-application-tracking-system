@@ -62,6 +62,7 @@ export async function deleteUser(id: string): Promise<void> {
 export interface ListAllApplicationsParams {
   userId?: string;
   status?: ApplicationStatus | '';
+  q?: string;
   page: number;
   size: number;
 }
@@ -73,6 +74,7 @@ export async function listAllApplications(
     params: {
       userId: params.userId || undefined,
       status: params.status || undefined,
+      q: params.q?.trim() || undefined,
       page: params.page,
       size: params.size,
     },

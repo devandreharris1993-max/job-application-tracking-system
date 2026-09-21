@@ -19,13 +19,8 @@ function NavItem({ to, children }: { to: string; children: ReactNode }) {
 
 function BrandMark() {
   return (
-    <NavLink to="/" className="flex items-center gap-2 text-lg font-bold text-slate-900">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white shadow-sm">
-        JA
-      </span>
-      <span>
-        JATS<span className="text-brand-600">.</span>
-      </span>
+    <NavLink to="/" className="flex items-center" aria-label="JATS home">
+      <img src="/logo.png" alt="JATS — Job Application Tracking System" className="h-40 w-auto" />
     </NavLink>
   );
 }

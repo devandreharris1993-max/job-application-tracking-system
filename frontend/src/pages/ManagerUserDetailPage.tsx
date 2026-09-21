@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { ApplicationSearchField } from '../components/ApplicationSearchField';
 import { ApplicationTrendChart } from '../components/ApplicationTrendChart';
 import { GoalProgressRing } from '../components/GoalProgressRing';
 import { ManagerApplicationRow } from '../components/ManagerApplicationRow';
 import { Spinner } from '../components/Spinner';
 import { AccountStatusBadge } from '../components/StatusBadge';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useAllApplicationsQuery, useApplicationStatsQuery, useManagedUserQuery } from '../hooks/useManager';
 import { APPLICATION_GOAL, APPLICATION_STATUSES, type ApplicationStatus } from '../types';
 import { formatDate } from '../utils/format';
@@ -14,15 +16,17 @@ const PAGE_SIZE = 10;
 export function ManagerUserDetailPage() {
   const { userId } = useParams<{ userId: string }>();
   const [status, setStatus] = useState<ApplicationStatus | ''>('');
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput, 300);
   const [page, setPage] = useState(0);
 
   useEffect(() => {
     setPage(0);
-  }, [status]);
+  }, [status, search]);
 
   const userQuery = useManagedUserQuery(userId ?? '');
   const statsQuery = useApplicationStatsQuery(userId);
-  const applicationsQuery = useAllApplicationsQuery({ userId, status, page, size: PAGE_SIZE });
+  const applicationsQuery = useAllApplicationsQuery({ userId, status, q: search, page, size: PAGE_SIZE });
   const applications = applicationsQuery.data;
 
   const totalApplied = userQuery.data?.applicationCount ?? 0;
@@ -92,21 +96,24 @@ export function ManagerUserDetailPage() {
       <section>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-slate-900">All applications</h2>
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-slate-600">Filter by status</span>
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value as ApplicationStatus | '')}
-              className="select"
-            >
-              <option value="">All</option>
-              {APPLICATION_STATUSES.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <ApplicationSearchField value={searchInput} onChange={setSearchInput} />
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-slate-600">Filter by status</span>
+              <select
+                value={status}
+                onChange={(event) => setStatus(event.target.value as ApplicationStatus | '')}
+                className="select"
+              >
+                <option value="">All</option>
+                {APPLICATION_STATUSES.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         <div className="card overflow-hidden">
@@ -120,7 +127,11 @@ export function ManagerUserDetailPage() {
           )}
           {applications && applications.items.length === 0 && (
             <p className="py-10 text-center text-sm text-slate-500">
-              No applications {status ? `with status ${status}` : 'tracked'} for this applicant yet.
+              {search
+                ? `No applications match “${search}”.`
+                : status
+                  ? `No applications with status ${status} for this applicant.`
+                  : 'No applications tracked for this applicant yet.'}
             </p>
           )}
           {applications && applications.items.length > 0 && (

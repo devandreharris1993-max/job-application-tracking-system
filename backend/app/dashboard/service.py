@@ -20,6 +20,7 @@ from app.resumes.schemas import RegisterResumeRequest, ResumeResponse, UploadUrl
 from app.resumes.storage import ResumeStorage
 from app.tracking.enums import ApplicationStatus
 from app.tracking.models import ApplicationHistory, JobApplication
+from app.tracking.service import apply_application_search
 from app.tracking.screenshot_storage import ScreenshotStorage
 from app.users.enums import AccountStatus, Role
 from app.users.models import User
@@ -108,6 +109,7 @@ def list_all_applications(
     status_filter: ApplicationStatus | None,
     page: int,
     size: int,
+    q: str | None = None,
 ) -> PageResponse[ManagerApplicationResponse]:
     """Cross-user application feed for the manager dashboard - every application from every
     applicant (not just counts), optionally narrowed to one user and/or one status."""
@@ -116,6 +118,7 @@ def list_all_applications(
         query = query.filter(JobApplication.user_id == user_id_filter)
     if status_filter is not None:
         query = query.filter(JobApplication.status == status_filter)
+    query = apply_application_search(query, q)
     query = query.order_by(JobApplication.created_at.desc())
 
     rows, total_elements, total_pages, last = paginate(query, page, size)

@@ -1,4 +1,5 @@
 import {
+  CONFIG_STORAGE_KEY,
   fetchCurrentUser,
   fetchMyResumes,
   fetchRecentApplications,
@@ -53,14 +54,31 @@ function disableForm(): void {
   form.querySelectorAll('input, button').forEach((el) => el.setAttribute('disabled', 'true'));
 }
 
+function enableForm(): void {
+  form.querySelectorAll('input, button').forEach((el) => el.removeAttribute('disabled'));
+}
+
+// Always sets every notice/form state explicitly (rather than only ever adding a restriction and
+// leaving it to some other code path to lift it again) so this is safe to call repeatedly with
+// whatever the *current* config happens to be - e.g. from init() re-running after the
+// chrome.storage.onChanged listener below fires, without needing to know or care what state the
+// panel was previously left in (logged out, pending, or already active).
 function applyAccountState(config: StoredConfig, accountStatus: AccountStatus | null): void {
   if (!config.token) {
     loggedOutNotice.classList.remove('hidden');
+    pendingNotice.classList.add('hidden');
     disableForm();
-  } else if (accountStatus !== null && accountStatus !== 'ACTIVE') {
+    return;
+  }
+  if (accountStatus !== null && accountStatus !== 'ACTIVE') {
+    loggedOutNotice.classList.add('hidden');
     pendingNotice.classList.remove('hidden');
     disableForm();
+    return;
   }
+  loggedOutNotice.classList.add('hidden');
+  pendingNotice.classList.add('hidden');
+  enableForm();
 }
 
 // How long the terminal (success/duplicate/error) state stays visible before the dialog closes
@@ -192,24 +210,30 @@ async function init(): Promise<void> {
   await loadResume(config.accountStatus);
   await loadTrackingStatus();
 
-  if (!config.token) {
+  // loadActivity/loadResume above may have discovered - via a 401 from authFetch - that the stored
+  // token is no longer valid and cleared it out from under the `config` captured above; re-reading
+  // rather than trusting that stale snapshot means this doesn't go on to redundantly retry
+  // fetchCurrentUser with a token already known to be bad, and reflects the logged-out state
+  // immediately rather than waiting on the storage-change listener below to react to it.
+  const currentConfig = await getConfig();
+  if (!currentConfig.token) {
+    applyAccountState(currentConfig, null);
     return;
   }
 
   // Refresh in case the account was approved/rejected since the last login — best-effort,
   // falls back to the last known status (already applied above) if the backend is unreachable.
   try {
-    const user = await fetchCurrentUser(config.token);
-    if (user.status !== config.accountStatus) {
-      await saveConfig({ ...config, accountStatus: user.status });
-      loggedOutNotice.classList.add('hidden');
-      pendingNotice.classList.add('hidden');
-      form.querySelectorAll('input, button').forEach((el) => el.removeAttribute('disabled'));
-      applyAccountState(config, user.status);
+    const user = await fetchCurrentUser(currentConfig.token);
+    if (user.status !== currentConfig.accountStatus) {
+      const updatedConfig = { ...currentConfig, accountStatus: user.status };
+      await saveConfig(updatedConfig);
+      applyAccountState(updatedConfig, user.status);
       await loadResume(user.status);
     }
   } catch {
-    // Offline or token expired — the form already reflects the last known status.
+    // Offline, or the token just got invalidated by this very call (authFetch already cleared it -
+    // the storage-change listener below will pick that up and re-render as logged out).
   }
 }
 
@@ -373,6 +397,20 @@ form.addEventListener('submit', async (event) => {
 // whenever the active tab changes to keep the prefilled job URL and account state current.
 chrome.tabs.onActivated.addListener(() => {
   void init();
+});
+
+// Without this, an *already-open* panel never finds out that the logged-in state changed
+// elsewhere - e.g. logging in (or out) from the options page in another tab, which fires no
+// chrome.tabs.onActivated event for this panel at all if the user never actually switches back to
+// a different tab in between; or authFetch (see api/client.ts) discovering mid-request that the
+// stored token had gone stale and clearing it, which happens well after this panel's own initial
+// init() already rendered its now-outdated "logged in" view. getConfig() always re-reads from
+// storage, so the simplest correct fix is to just re-run the exact same init() sequence as on load
+// whenever the stored config actually changes.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && CONFIG_STORAGE_KEY in changes) {
+    void init();
+  }
 });
 
 void init();

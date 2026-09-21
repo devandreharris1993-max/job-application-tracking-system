@@ -12,6 +12,14 @@
 // the tenant subdomain for Workday (acme.wd1.myworkdayjobs.com -> "acme"), or the first path
 // segment for the rest (jobs.lever.co/acme/1234 -> "acme").
 const WORKDAY_TENANT_PATTERN = /^([a-z0-9-]+)\.[a-z0-9-]+\.myworkdayjobs\.com$/i;
+// Phenom People (phenompro.com) is subdomain-tenant like Workday, not path-tenant - e.g.
+// alight.phenompro.com/us/en/apply -> "alight", unitedairlines.phenompro.com/... -> "unitedairlines".
+// Its own docs/URL structure use a fixed "/apply", "/applythankyou", "/job/..." set of top-level
+// paths per tenant (never a company-name path segment), so the PATH_TENANT_ATS_HOSTS treatment
+// below would only ever guess "us" (the locale segment) or "apply" itself. Companies that instead
+// run Phenom on their own custom domain (e.g. careers.alight.com) don't need special-casing here -
+// the generic host-based fallback at the bottom already yields "Alight" correctly for those.
+const PHENOMPRO_TENANT_PATTERN = /^([a-z0-9-]+)\.phenompro\.com$/i;
 const PATH_TENANT_ATS_HOSTS = [
   'lever.co',
   'greenhouse.io',
@@ -21,6 +29,29 @@ const PATH_TENANT_ATS_HOSTS = [
   'jobvite.com',
   'recruitee.com',
 ];
+
+// Dayforce (dayforcehcm.com) is also a shared, multi-tenant domain like the ones above, but its
+// tenant/company namespace isn't reliably at a *fixed* path index the way "first segment" is for
+// those - it shows up right after "CandidatePortal" on the actual application flow (e.g.
+// can242.dayforcehcm.com/CandidatePortal/en-US/e0335/JobApplication -> "e0335"), or right after the
+// locale code on its newer job-board UI (jobs.dayforcehcm.com/en-US/roots/CANDIDATEPORTAL/... ->
+// "roots") - so this looks for whichever of those two anchors is present instead of assuming one
+// fixed position.
+const DAYFORCE_HOST = 'dayforcehcm.com';
+const LOCALE_SEGMENT_PATTERN = /^[a-z]{2}-[A-Z]{2}$/;
+
+function guessCompanyFromDayforceUrl(pathname: string): string {
+  const segments = pathname.split('/').filter((segment) => segment.length > 0);
+  const candidatePortalIndex = segments.findIndex((segment) => segment.toLowerCase() === 'candidateportal');
+  if (candidatePortalIndex !== -1 && segments[candidatePortalIndex + 1]) {
+    return humanizeSlug(segments[candidatePortalIndex + 1]);
+  }
+  const localeIndex = segments.findIndex((segment) => LOCALE_SEGMENT_PATTERN.test(segment));
+  if (localeIndex !== -1 && segments[localeIndex + 1]) {
+    return humanizeSlug(segments[localeIndex + 1]);
+  }
+  return '';
+}
 
 function isOrEndsWith(host: string, suffix: string): boolean {
   return host === suffix || host.endsWith(`.${suffix}`);
@@ -51,6 +82,17 @@ export function guessCompanyFromUrl(url: string): string {
     const workdayMatch = host.match(WORKDAY_TENANT_PATTERN);
     if (workdayMatch) {
       const guess = humanizeSlug(workdayMatch[1]);
+      if (guess) return guess;
+    }
+
+    const phenomMatch = host.match(PHENOMPRO_TENANT_PATTERN);
+    if (phenomMatch) {
+      const guess = humanizeSlug(phenomMatch[1]);
+      if (guess) return guess;
+    }
+
+    if (isOrEndsWith(host, DAYFORCE_HOST)) {
+      const guess = guessCompanyFromDayforceUrl(parsed.pathname);
       if (guess) return guess;
     }
 

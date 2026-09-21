@@ -1,4 +1,4 @@
-import { fetchCurrentUser, getConfig, login, saveConfig } from '../api/client';
+import { CONFIG_STORAGE_KEY, fetchCurrentUser, getConfig, login, saveConfig } from '../api/client';
 import type { AccountStatus } from '../types';
 
 const loginForm = document.getElementById('loginForm') as HTMLFormElement;
@@ -78,6 +78,16 @@ logoutBtn.addEventListener('click', async () => {
   const config = await getConfig();
   await saveConfig({ ...config, token: null, userEmail: null, accountStatus: null });
   await refreshView();
+});
+
+// Mirrors sidepanel.ts's listener: if this page is left open and the session gets cleared
+// elsewhere (e.g. authFetch in api/client.ts discovering a stale token via a 401 while background.
+// ts reports an auto-tracked submission), reflect that immediately instead of continuing to show a
+// stale "logged in" view until this page happens to reload.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && CONFIG_STORAGE_KEY in changes) {
+    void refreshView();
+  }
 });
 
 void refreshView();

@@ -30,9 +30,11 @@ export function LoginPage() {
   return (
     <div className="mx-auto max-w-sm">
       <div className="mb-6 text-center">
-        <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-sm font-bold text-white shadow-sm">
-          JA
-        </span>
+        <img
+          src="/logo.png"
+          alt="JATS — Job Application Tracking System"
+          className="mx-auto h-14 w-auto"
+        />
         <h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-900">Welcome back</h1>
         <p className="mt-1 text-sm text-slate-500">Log in to review your tracked applications.</p>
       </div>
