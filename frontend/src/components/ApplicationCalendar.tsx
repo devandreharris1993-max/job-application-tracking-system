@@ -148,14 +148,18 @@ export function ApplicationCalendar({
             'relative flex h-9 w-full items-center justify-center rounded-lg text-sm transition-colors ';
           if (!cell.inMonth) {
             className += isSelected
-              ? 'bg-brand-600 font-semibold text-white'
+              ? hasApps
+                ? 'bg-green-600 font-semibold text-white'
+                : 'bg-slate-600 font-semibold text-white'
               : hasApps
-                ? 'bg-brand-50 font-medium text-brand-400'
+                ? 'bg-green-50 font-medium text-green-600'
                 : 'text-slate-300 hover:bg-slate-50';
-          } else if (isSelected) {
-            className += 'bg-brand-600 font-semibold text-white shadow-sm';
+          } else if (hasApps && isSelected) {
+            className += 'bg-green-600 font-semibold text-white shadow-sm';
           } else if (hasApps) {
-            className += 'bg-brand-100 font-semibold text-brand-800 hover:bg-brand-200';
+            className += 'bg-green-100 font-semibold text-green-800 hover:bg-green-200';
+          } else if (isSelected) {
+            className += 'bg-slate-700 font-semibold text-white shadow-sm';
           } else {
             className += 'text-slate-700 hover:bg-slate-50';
           }
@@ -175,14 +179,14 @@ export function ApplicationCalendar({
             >
               {cell.day}
               {hasApps && !isSelected && (
-                <span className="absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-brand-600" />
+                <span className="absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-green-600" />
               )}
             </button>
           );
         })}
       </div>
 
-      <p className="mt-3 text-xs text-slate-400">Highlighted days have tracked applications. Click a day to list them.</p>
+      <p className="mt-3 text-xs text-slate-400">Green days have tracked applications. Click a day to list them.</p>
     </div>
   );
 }
